@@ -3,379 +3,151 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Photobooth Pro v5.3 (Cloud)</title>
+    <title>Photobooth Pro Cloud v5.3</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    
     <!-- Firebase SDKs -->
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        // --- CẤU HÌNH FIREBASE CỦA BẠN ---
+        // CẤU HÌNH FIREBASE CỦA BẠN
         const firebaseConfig = {
-            apiKey: "AIzaSyDlSSw_HYlplR7cE2yJm4LPKCqjQGfs_08",
-            authDomain: "photobooth-management-2cbd1.firebaseapp.com",
-            projectId: "photobooth-management-2cbd1",
-            storageBucket: "photobooth-management-2cbd1.firebasestorage.app",
-            messagingSenderId: "980854296268",
-            appId: "1:980854296268:web:a595e1184d7e378c983c69"
+          apiKey: "AIzaSyDlSSw_HYlplR7cE2yJm4LPKCqjQGfs_08", // <--- NHỚ DÁN API KEY THỰC TẾ VÀO ĐÂY
+          authDomain: "photobooth-management-2cbd1.firebaseapp.com",
+          projectId: "photobooth-management-2cbd1",
+          storageBucket: "photobooth-management-2cbd1.firebasestorage.app",
+          messagingSenderId: "980854296268",
+          appId: "1:980854296268:web:a595e1184d7e378c983c69"
         };
 
         // Khởi tạo
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        const auth = getAuth(app);
-        const appId = "photobooth-manager-v5";
-
-        window.db = db;
-        window.appId = appId;
+        window.db = db; // Xuất ra để dùng trong các function bên dưới
         
-        // Đăng nhập ẩn danh
-        signInAnonymously(auth).catch(err => {
-            console.error("Auth error:", err);
-            document.getElementById('cloud-status').innerText = "× Lỗi Auth: Hãy bật Anonymous trong Firebase";
-        });
-
-        onAuthStateChanged(auth, (user) => {
-            if (user) {
-                console.log("Đã kết nối Cloud: ", user.uid);
-                listenToCloudData();
-            }
-        });
-
-        function listenToCloudData() {
-            const statusEl = document.getElementById('cloud-status');
-            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'main_store'), (docSnap) => {
-                if (docSnap.exists()) {
-                    const cloudData = docSnap.data();
-                    window.events = cloudData.events || [];
-                    window.customers = cloudData.customers || [];
-                    window.settings = cloudData.settings || window.defaultSettings;
-                    
-                    renderList();
-                    renderSettings();
-                    statusEl.innerText = "● Đã đồng bộ với Cloud";
-                    statusEl.className = "text-xs text-emerald-500 font-bold flex items-center gap-1 mt-1";
-                } else {
-                    statusEl.innerText = "○ Cloud trống - Đang sẵn sàng khởi tạo";
-                    saveToCloud(); 
-                }
-            }, (err) => {
-                console.error("Firestore Error:", err);
-                statusEl.innerText = "× Lỗi Cloud: Cần thiết lập Rules (Test Mode)";
-                statusEl.className = "text-xs text-red-500 font-bold flex items-center gap-1 mt-1";
-            });
-        }
-
-        window.saveToCloud = async function() {
-            try {
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'main_store'), {
-                    events: window.events || [],
-                    customers: window.customers || [],
-                    settings: window.settings || window.defaultSettings,
-                    lastUpdate: new Date().getTime()
-                });
-            } catch (e) {
-                console.error("Lỗi lưu Cloud: ", e);
-            }
-        };
+        console.log("Firebase Connected!");
+        checkConnection();
     </script>
 
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
         body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
-        .status-badge { padding: 4px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; border-width: 1px; }
-        .status-pending { background-color: #fef3c7; color: #92400e; border-color: #fde68a; }
-        .status-confirmed { background-color: #e0f2fe; color: #0369a1; border-color: #bae6fd; }
-        .status-deposited { background-color: #dcfce7; color: #166534; border-color: #bbf7d0; }
-        .status-completed { background-color: #f1f5f9; color: #1e293b; border-color: #e2e8f0; }
-        .tab-active { border-bottom: 3px solid #4f46e5; color: #4f46e5; font-weight: 700; }
+        .status-badge { padding: 4px 10px; border-radius: 8px; font-size: 0.75rem; font-weight: 700; }
+        .status-pending { background-color: #fef3c7; color: #92400e; }
+        .status-completed { background-color: #dcfce7; color: #166534; }
     </style>
 </head>
-<body class="p-4 md:p-6">
+<body class="p-4 md:p-8">
     <div class="max-w-7xl mx-auto">
-        <header class="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+        <header class="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
             <div>
-                <h1 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                    <span class="bg-indigo-600 text-white p-1.5 rounded-lg text-xl">📸</span> 
-                    Photobooth Pro <span class="text-indigo-600 text-sm">v5.3 Cloud</span>
-                </h1>
-                <div id="cloud-status" class="text-xs text-amber-500 font-bold flex items-center gap-1 mt-1">
-                    ○ Đang kết nối Cloud...
+                <h1 class="text-2xl font-bold text-slate-800">📸 Photobooth Pro <span class="text-indigo-600">Cloud</span></h1>
+                <div id="status-bar" class="text-xs font-bold text-orange-500 mt-1 flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
+                    ĐANG KẾT NỐI CLOUD...
                 </div>
             </div>
-            <button onclick="openNewEventModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold transition-all shadow-lg flex items-center gap-2">
-                <span>+ Thêm Sự Kiện</span>
+            <button onclick="toggleModal(true)" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg transition-all">
+                + Thêm Sự Kiện
             </button>
         </header>
 
-        <div class="flex gap-6 border-b border-slate-200 mb-6 px-2">
-            <button onclick="showView('list')" id="tab-list" class="pb-3 px-2 tab-active transition-all">Lịch Trình Sự Kiện</button>
-            <button onclick="showView('settings')" id="tab-settings" class="pb-3 px-2 text-slate-400 hover:text-slate-600 transition-all font-medium">Cấu Hình & Danh Mục</button>
-        </div>
-
-        <div id="view-list">
-            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse min-w-[1000px]">
-                        <thead class="bg-slate-50/50 border-b border-slate-200">
-                            <tr>
-                                <th class="p-4 text-[11px] font-bold text-slate-400 uppercase">Ngày / Mã</th>
-                                <th class="p-4 text-[11px] font-bold text-slate-400 uppercase">Sự kiện & Địa điểm</th>
-                                <th class="p-4 text-[11px] font-bold text-slate-400 uppercase">Khách hàng</th>
-                                <th class="p-4 text-[11px] font-bold text-slate-400 uppercase">Chi phí</th>
-                                <th class="p-4 text-[11px] font-bold text-slate-400 uppercase">Trạng thái</th>
-                                <th class="p-4 text-right">Thao tác</th>
-                            </tr>
-                        </thead>
-                        <tbody id="event-list-body" class="divide-y divide-slate-100"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <div id="view-settings" class="hidden space-y-6">
-             <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                <h3 class="font-bold text-lg mb-4 text-slate-800">🏢 Danh mục Khách hàng</h3>
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6 bg-slate-50 p-4 rounded-xl border">
-                    <input type="text" id="cust-name" placeholder="Tên Công ty..." class="px-3 py-2 border rounded-lg text-sm outline-none">
-                    <input type="text" id="cust-tax" placeholder="MST..." class="px-3 py-2 border rounded-lg text-sm outline-none">
-                    <input type="text" id="cust-address" placeholder="Địa chỉ..." class="px-3 py-2 border rounded-lg text-sm outline-none">
-                    <button onclick="addCustomer()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold">Thêm</button>
-                </div>
-                <div class="overflow-x-auto max-h-60 overflow-y-auto">
-                    <table class="w-full text-sm">
-                        <tbody id="list-customers"></tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 class="font-bold mb-4">📍 Địa điểm</h3>
-                    <div class="flex gap-2 mb-4">
-                        <input type="text" id="new-location" class="flex-1 px-3 py-2 border rounded-lg text-sm" placeholder="Thêm địa điểm...">
-                        <button onclick="addSetting('locations', 'new-location')" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">+</button>
-                    </div>
-                    <ul id="list-locations" class="space-y-1 text-sm max-h-48 overflow-y-auto"></ul>
-                </div>
-                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 class="font-bold mb-4">📦 Gói dịch vụ</h3>
-                    <div class="flex gap-2 mb-4">
-                        <input type="text" id="new-package" class="flex-1 px-3 py-2 border rounded-lg text-sm" placeholder="Thêm gói dịch vụ...">
-                        <button onclick="addSetting('packages', 'new-package')" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">+</button>
-                    </div>
-                    <ul id="list-packages" class="space-y-1 text-sm max-h-48 overflow-y-auto"></ul>
-                </div>
-            </div>
+        <!-- Danh sách sự kiện -->
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <table class="w-full text-left border-collapse">
+                <thead class="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                        <th class="p-4 text-xs font-bold text-slate-400 uppercase">Ngày & Giờ</th>
+                        <th class="p-4 text-xs font-bold text-slate-400 uppercase">Khách hàng</th>
+                        <th class="p-4 text-xs font-bold text-slate-400 uppercase">Tài chính</th>
+                        <th class="p-4 text-xs font-bold text-slate-400 uppercase text-right">Thao tác</th>
+                    </tr>
+                </thead>
+                <tbody id="event-list-body" class="divide-y divide-slate-100">
+                    <!-- Dữ liệu từ Firebase sẽ đổ vào đây -->
+                </tbody>
+            </table>
         </div>
     </div>
 
     <!-- Modal Form -->
     <div id="modal" class="fixed inset-0 bg-slate-900/60 hidden z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-        <div class="bg-white rounded-3xl w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col shadow-2xl">
-            <div class="p-6 border-b flex justify-between items-center bg-slate-50/50">
-                <h2 class="text-xl font-bold text-slate-800" id="modal-title">Chi Tiết Sự Kiện</h2>
-                <button onclick="toggleModal(false)" class="text-slate-400 hover:text-slate-600 text-2xl">&times;</button>
-            </div>
-            <form id="event-form" class="p-6 overflow-y-auto">
-                <input type="hidden" id="edit-id">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-xs font-bold text-slate-500 mb-1">Khách hàng / Công ty</label>
-                            <select id="company-select" class="w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 ring-indigo-50"></select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-slate-500 mb-1">Tên sự kiện</label>
-                            <input type="text" id="event-name" required class="w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 ring-indigo-50">
-                        </div>
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-xs font-bold text-slate-500 mb-1">Ngày diễn ra</label>
-                                <input type="date" id="date" required class="w-full px-3 py-2.5 border rounded-xl outline-none">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold text-slate-500 mb-1">Địa điểm</label>
-                                <select id="location-select" class="w-full px-3 py-2.5 border rounded-xl outline-none"></select>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="space-y-4">
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-xs font-bold text-slate-500 mb-1">Tổng phí (VNĐ)</label>
-                                <input type="number" id="total-price" value="0" class="w-full px-3 py-2.5 border rounded-xl outline-none">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold text-slate-500 mb-1">Gói dịch vụ</label>
-                                <select id="package-select" class="w-full px-3 py-2.5 border rounded-xl outline-none"></select>
-                            </div>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-slate-500 mb-1">Trạng thái</label>
-                            <select id="status" class="w-full px-3 py-2.5 border rounded-xl outline-none font-bold text-indigo-600">
-                                <option value="pending">Chờ xác nhận</option>
-                                <option value="confirmed">Đã xác nhận</option>
-                                <option value="deposited">Đã đặt cọc</option>
-                                <option value="completed">Hoàn thành</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-slate-500 mb-1">Ghi chú</label>
-                            <textarea id="notes" rows="2" class="w-full px-3 py-2.5 border rounded-xl outline-none text-sm"></textarea>
-                        </div>
-                    </div>
+        <div class="bg-white rounded-3xl w-full max-w-lg p-6 shadow-2xl">
+            <h2 class="text-xl font-bold mb-4">Thông tin sự kiện mới</h2>
+            <div class="space-y-4">
+                <input type="text" id="customer" placeholder="Tên khách hàng" class="w-full p-3 border rounded-xl outline-none">
+                <input type="date" id="date" class="w-full p-3 border rounded-xl outline-none">
+                <input type="number" id="price" placeholder="Tổng tiền (VND)" class="w-full p-3 border rounded-xl outline-none">
+                <div class="flex gap-2">
+                    <button onclick="saveEvent()" class="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold">Lưu lên Cloud</button>
+                    <button onclick="toggleModal(false)" class="px-6 bg-slate-100 py-3 rounded-xl font-bold">Hủy</button>
                 </div>
-                <button type="submit" class="w-full mt-8 bg-indigo-600 text-white py-4 rounded-2xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all">LƯU & ĐỒNG BỘ CLOUD</button>
-            </form>
+            </div>
         </div>
     </div>
 
-    <script>
-        window.events = [];
-        window.customers = [];
-        window.defaultSettings = {
-            packages: ["Gói 2h", "Gói 3h", "Gói 4h", "VIP"],
-            locations: ["GEM Center", "White Palace", "Adora Center", "InterContinental"],
-            backdrops: ["Trắng trơn"],
-            banks: ["Vietcombank"]
-        };
-        window.settings = window.defaultSettings;
+    <script type="module">
+        import { collection, addDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        function showView(view) {
-            document.getElementById('view-list').classList.toggle('hidden', view !== 'list');
-            document.getElementById('view-settings').classList.toggle('hidden', view !== 'settings');
-            document.getElementById('tab-list').className = view === 'list' ? 'pb-3 px-2 tab-active transition-all' : 'pb-3 px-2 text-slate-400 transition-all font-medium';
-            document.getElementById('tab-settings').className = view === 'settings' ? 'pb-3 px-2 tab-active transition-all' : 'pb-3 px-2 text-slate-400 transition-all font-medium';
-            if(view === 'settings') renderSettings();
+        // Hàm kiểm tra kết nối
+        window.checkConnection = function() {
+            setTimeout(() => {
+                if (window.db) {
+                    const bar = document.getElementById('status-bar');
+                    bar.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500"></span> ĐÃ KẾT NỐI CLOUD';
+                    bar.className = "text-xs font-bold text-emerald-600 mt-1 flex items-center gap-1";
+                    loadEvents();
+                }
+            }, 2000);
         }
 
-        function toggleModal(show) {
-            document.getElementById('modal').classList.toggle('hidden', !show);
-            if(show) updateSelects();
+        // Lưu sự kiện
+        window.saveEvent = async function() {
+            const customer = document.getElementById('customer').value;
+            const date = document.getElementById('date').value;
+            const price = document.getElementById('price').value;
+
+            if (!customer || !date) return alert("Vui lòng nhập đủ tên và ngày!");
+
+            try {
+                await addDoc(collection(window.db, "events"), {
+                    customer: customer,
+                    date: date,
+                    price: Number(price),
+                    createdAt: new Date()
+                });
+                toggleModal(false);
+                alert("Đã lưu thành công lên Cloud!");
+            } catch (e) {
+                alert("Lỗi: " + e.message);
+            }
         }
 
-        function updateSelects() {
-            document.getElementById('company-select').innerHTML = window.customers.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-            document.getElementById('location-select').innerHTML = window.settings.locations.map(l => `<option value="${l}">${l}</option>`).join('');
-            document.getElementById('package-select').innerHTML = window.settings.packages.map(p => `<option value="${p}">${p}</option>`).join('');
-        }
-
-        async function addCustomer() {
-            const name = document.getElementById('cust-name').value;
-            if(!name) return;
-            window.customers.push({
-                id: Date.now().toString(), 
-                name, 
-                tax: document.getElementById('cust-tax').value,
-                address: document.getElementById('cust-address').value
+        // Tải dữ liệu Realtime
+        function loadEvents() {
+            const q = query(collection(window.db, "events"), orderBy("date", "desc"));
+            onSnapshot(q, (snapshot) => {
+                const tbody = document.getElementById('event-list-body');
+                tbody.innerHTML = '';
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    tbody.innerHTML += `
+                        <tr class="hover:bg-slate-50 transition-all">
+                            <td class="p-4 font-bold">${data.date}</td>
+                            <td class="p-4">${data.customer}</td>
+                            <td class="p-4 text-emerald-600 font-bold">${new Intl.NumberFormat('vi-VN').format(data.price)}đ</td>
+                            <td class="p-4 text-right">
+                                <button class="text-slate-400 hover:text-red-500">Xóa</button>
+                            </td>
+                        </tr>
+                    `;
+                });
             });
-            await window.saveToCloud();
-            document.getElementById('cust-name').value = '';
-            renderSettings();
         }
 
-        async function addSetting(key, inputId) {
-            const val = document.getElementById(inputId).value;
-            if(!val) return;
-            window.settings[key].push(val);
-            await window.saveToCloud();
-            document.getElementById(inputId).value = '';
-            renderSettings();
-        }
-
-        async function removeSetting(key, idx) {
-            if(!confirm("Xóa mục này?")) return;
-            window.settings[key].splice(idx, 1);
-            await window.saveToCloud();
-            renderSettings();
-        }
-
-        document.getElementById('event-form').onsubmit = async (e) => {
-            e.preventDefault();
-            const data = {
-                id: document.getElementById('edit-id').value || Date.now().toString(),
-                eventName: document.getElementById('event-name').value,
-                date: document.getElementById('date').value,
-                location: document.getElementById('location-select').value,
-                package: document.getElementById('package-select').value,
-                totalPrice: document.getElementById('total-price').value,
-                status: document.getElementById('status').value,
-                notes: document.getElementById('notes').value,
-                companyName: document.getElementById('company-select').selectedOptions[0]?.text || "N/A"
-            };
-            const idx = window.events.findIndex(ev => ev.id === data.id);
-            if(idx > -1) window.events[idx] = data; else window.events.push(data);
-            
-            await window.saveToCloud();
-            toggleModal(false);
-        };
-
-        function renderList() {
-            const tbody = document.getElementById('event-list-body');
-            window.events.sort((a,b) => new Date(a.date) - new Date(b.date));
-            tbody.innerHTML = window.events.map(ev => `
-                <tr class="hover:bg-slate-50 transition-all border-b border-slate-50">
-                    <td class="p-4">
-                        <div class="font-bold text-slate-800">${ev.date.split('-').reverse().join('/')}</div>
-                        <div class="text-[10px] text-slate-400 font-mono">ID: ${ev.id.slice(-6)}</div>
-                    </td>
-                    <td class="p-4">
-                        <div class="font-bold text-slate-900 text-sm">${ev.eventName}</div>
-                        <div class="text-xs text-slate-500">📍 ${ev.location}</div>
-                    </td>
-                    <td class="p-4 text-xs text-slate-600 font-medium">${ev.companyName}</td>
-                    <td class="p-4">
-                        <div class="font-bold text-indigo-600 text-sm">${Number(ev.totalPrice).toLocaleString()}đ</div>
-                        <div class="text-[10px] text-slate-400">${ev.package}</div>
-                    </td>
-                    <td class="p-4"><span class="status-badge status-${ev.status}">${ev.status}</span></td>
-                    <td class="p-4 text-right">
-                        <button onclick="editEvent('${ev.id}')" class="p-2 hover:bg-indigo-50 text-indigo-600 rounded-lg font-bold">Sửa</button>
-                    </td>
-                </tr>
-            `).join('');
-        }
-
-        function editEvent(id) {
-            const ev = window.events.find(e => e.id === id);
-            if(!ev) return;
-            toggleModal(true);
-            document.getElementById('edit-id').value = ev.id;
-            document.getElementById('event-name').value = ev.eventName;
-            document.getElementById('date').value = ev.date;
-            document.getElementById('total-price').value = ev.totalPrice;
-            document.getElementById('status').value = ev.status;
-            document.getElementById('notes').value = ev.notes || '';
-            document.getElementById('location-select').value = ev.location;
-            document.getElementById('package-select').value = ev.package;
-        }
-
-        function renderSettings() {
-            const renderCategory = (key, listId) => {
-                document.getElementById(listId).innerHTML = window.settings[key].map((item, idx) => `
-                    <li class="flex justify-between items-center bg-slate-50 p-2 rounded mb-1 group transition-all">
-                        <span class="text-slate-700 font-medium">${item}</span>
-                        <button onclick="removeSetting('${key}', ${idx})" class="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 px-2">&times;</button>
-                    </li>
-                `).join('');
-            };
-            renderCategory('locations', 'list-locations');
-            renderCategory('packages', 'list-packages');
-            
-            document.getElementById('list-customers').innerHTML = window.customers.map(c => `
-                <tr class="border-b border-slate-50 hover:bg-slate-50">
-                    <td class="py-3 font-bold text-slate-800">${c.name}</td>
-                    <td class="py-3 text-slate-400 text-xs">${c.tax || '-'}</td>
-                </tr>
-            `).join('');
-        }
-        
-        function openNewEventModal() {
-            document.getElementById('event-form').reset();
-            document.getElementById('edit-id').value = '';
-            toggleModal(true);
+        window.toggleModal = (show) => {
+            document.getElementById('modal').classList.toggle('hidden', !show);
         }
     </script>
 </body>
