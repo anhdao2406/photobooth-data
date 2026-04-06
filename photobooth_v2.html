@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photobooth Pro Cloud v5.3</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // CẤU HÌNH FIREBASE CỦA BẠN
+        const firebaseConfig = {
+          apiKey: "AIzaSyDlSSw_HYlplR7cE2yJm4LPKCqjQGfs_08", // <--- NHỚ DÁN API KEY THỰC TẾ VÀO ĐÂY
+          authDomain: "photobooth-management-2cbd1.firebaseapp.com",
+          projectId: "photobooth-management-2cbd1",
+          storageBucket: "photobooth-management-2cbd1.firebasestorage.app",
+          messagingSenderId: "980854296268",
+          appId: "1:980854296268:web:a595e1184d7e378c983c69"
+        };
+
+        // Khởi tạo
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        window.db = db; // Xuất ra để dùng trong các function bên dưới
+        
+        console.log("Firebase Connected!");
+        checkConnection();
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .status-badge { padding: 4px 10px; border-radius: 8px; font-size: 0.75rem; font-weight: 700; }
+        .status-pending { background-color: #fef3c7; color: #92400e; }
+        .status-completed { background-color: #dcfce7; color: #166534; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+            <div>
+                <h1 class="text-2xl font-bold text-slate-800">📸 Photobooth Pro <span class="text-indigo-600">Cloud</span></h1>
+                <div id="status-bar" class="text-xs font-bold text-orange-500 mt-1 flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
+                    ĐANG KẾT NỐI CLOUD...
+                </div>
+            </div>
+            <button onclick="toggleModal(true)" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg transition-all">
+                + Thêm Sự Kiện
+            </button>
+        </header>
+
+        <!-- Danh sách sự kiện -->
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <table class="w-full text-left border-collapse">
+                <thead class="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                        <th class="p-4 text-xs font-bold text-slate-400 uppercase">Ngày & Giờ</th>
+                        <th class="p-4 text-xs font-bold text-slate-400 uppercase">Khách hàng</th>
+                        <th class="p-4 text-xs font-bold text-slate-400 uppercase">Tài chính</th>
+                        <th class="p-4 text-xs font-bold text-slate-400 uppercase text-right">Thao tác</th>
+                    </tr>
+                </thead>
+                <tbody id="event-list-body" class="divide-y divide-slate-100">
+                    <!-- Dữ liệu từ Firebase sẽ đổ vào đây -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Modal Form -->
+    <div id="modal" class="fixed inset-0 bg-slate-900/60 hidden z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-3xl w-full max-w-lg p-6 shadow-2xl">
+            <h2 class="text-xl font-bold mb-4">Thông tin sự kiện mới</h2>
+            <div class="space-y-4">
+                <input type="text" id="customer" placeholder="Tên khách hàng" class="w-full p-3 border rounded-xl outline-none">
+                <input type="date" id="date" class="w-full p-3 border rounded-xl outline-none">
+                <input type="number" id="price" placeholder="Tổng tiền (VND)" class="w-full p-3 border rounded-xl outline-none">
+                <div class="flex gap-2">
+                    <button onclick="saveEvent()" class="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold">Lưu lên Cloud</button>
+                    <button onclick="toggleModal(false)" class="px-6 bg-slate-100 py-3 rounded-xl font-bold">Hủy</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { collection, addDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // Hàm kiểm tra kết nối
+        window.checkConnection = function() {
+            setTimeout(() => {
+                if (window.db) {
+                    const bar = document.getElementById('status-bar');
+                    bar.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500"></span> ĐÃ KẾT NỐI CLOUD';
+                    bar.className = "text-xs font-bold text-emerald-600 mt-1 flex items-center gap-1";
+                    loadEvents();
+                }
+            }, 2000);
+        }
+
+        // Lưu sự kiện
+        window.saveEvent = async function() {
+            const customer = document.getElementById('customer').value;
+            const date = document.getElementById('date').value;
+            const price = document.getElementById('price').value;
+
+            if (!customer || !date) return alert("Vui lòng nhập đủ tên và ngày!");
+
+            try {
+                await addDoc(collection(window.db, "events"), {
+                    customer: customer,
+                    date: date,
+                    price: Number(price),
+                    createdAt: new Date()
+                });
+                toggleModal(false);
+                alert("Đã lưu thành công lên Cloud!");
+            } catch (e) {
+                alert("Lỗi: " + e.message);
+            }
+        }
+
+        // Tải dữ liệu Realtime
+        function loadEvents() {
+            const q = query(collection(window.db, "events"), orderBy("date", "desc"));
+            onSnapshot(q, (snapshot) => {
+                const tbody = document.getElementById('event-list-body');
+                tbody.innerHTML = '';
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    tbody.innerHTML += `
+                        <tr class="hover:bg-slate-50 transition-all">
+                            <td class="p-4 font-bold">${data.date}</td>
+                            <td class="p-4">${data.customer}</td>
+                            <td class="p-4 text-emerald-600 font-bold">${new Intl.NumberFormat('vi-VN').format(data.price)}đ</td>
+                            <td class="p-4 text-right">
+                                <button class="text-slate-400 hover:text-red-500">Xóa</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            });
+        }
+
+        window.toggleModal = (show) => {
+            document.getElementById('modal').classList.toggle('hidden', !show);
+        }
+    </script>
+</body>
+</html>
