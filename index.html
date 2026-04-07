@@ -3,43 +3,51 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Photobooth Pro Manager v6.0 Cloud</title>
+    <title>Photobooth Pro Manager v6.4 Cloud</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     
-    <!-- Firebase SDKs -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .status-badge { padding: 4px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; border-width: 1px; }
+        .status-pending { background-color: #fef3c7; color: #92400e; border-color: #fde68a; }
+        .status-confirmed { background-color: #e0f2fe; color: #0369a1; border-color: #bae6fd; }
+        .status-deposited { background-color: #dcfce7; color: #166534; border-color: #bbf7d0; }
+        .status-waiting_payment { background-color: #ffedd5; color: #9a3412; border-color: #fed7aa; }
+        .status-completed { background-color: #f1f5f9; color: #1e293b; border-color: #e2e8f0; }
+        .status-cancelled { background-color: #fee2e2; color: #991b1b; border-color: #fecaca; }
+        .tab-active { border-bottom: 3px solid #4f46e5; color: #4f46e5; font-weight: 700; }
+        
+        .pulse-now {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(79, 70, 229, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); }
+        }
+    </style>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, collection, query, onSnapshot, addDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, addDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Firebase Configuration from environment
-        const firebaseConfig = JSON.parse(__firebase_config);
+        const firebaseConfig = (typeof __firebase_config !== 'undefined') 
+            ? JSON.parse(__firebase_config) 
+            : { apiKey: "AIzaSyDlSSw_HYlplR7cE2yJm4LPKCqjQGfs_08", authDomain: "photobooth-management-2cbd1.firebaseapp.com", projectId: "photobooth-management-2cbd1" };
+        
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'photobooth-manager-v6';
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'photobooth-cloud-v6';
 
-        // State Management
         let user = null;
         let events = [];
         let customers = [];
-        let settings = {
-            packages: [],
-            backdrops: [],
-            banks: [],
-            locations: []
-        };
+        let settings = { packages: [], backdrops: [], banks: [], locations: [] };
 
-        // UI Helpers
-        const formatMoney = (n) => new Intl.NumberFormat('vi-VN').format(n) + 'đ';
-        const formatDateVi = (s) => { if(!s) return "--/--/----"; const [y,m,d] = s.split('-'); return `${d}/${m}/${y}`; };
-        const getStatusText = (s) => {
-            const map = { pending: 'Chờ xác nhận', confirmed: 'Đã xác nhận', deposited: 'Đã đặt cọc', waiting_payment: 'Chờ thanh toán', completed: 'Hoàn thành', cancelled: 'Hủy' };
-            return map[s] || s;
-        };
-
-        // --- AUTHENTICATION (RULE 3) ---
         async function initAuth() {
             try {
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -47,263 +55,62 @@
                 } else {
                     await signInAnonymously(auth);
                 }
-            } catch (error) {
-                console.error("Auth Error:", error);
-            }
+            } catch (error) { console.error("Auth Error:", error); }
         }
 
         onAuthStateChanged(auth, (u) => {
             user = u;
-            if (user) {
-                console.log("Authenticated as:", user.uid);
-                setupSubscriptions();
-            }
+            if (user) setupSubscriptions();
         });
 
-        // --- FIRESTORE SUBSCRIPTIONS (RULE 1 & 2) ---
         function setupSubscriptions() {
             if (!user) return;
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'events'), (snap) => {
+                events = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                events.sort((a, b) => new Date(b.date) - new Date(a.date));
+                window.renderList();
+                window.updateSummary();
+            }, (err) => console.error("Event list error:", err));
 
-            // 1. Subscribe to Events (Public Data)
-            const eventsCol = collection(db, 'artifacts', appId, 'public', 'data', 'events');
-            onSnapshot(eventsCol, (snapshot) => {
-                events = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                events.sort((a, b) => new Date(a.date) - new Date(b.date));
-                renderList();
-                updateSummary();
-            }, (err) => console.error("Events Sync Error:", err));
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), (snap) => {
+                customers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                window.renderSettings();
+                window.updateSelects();
+            }, (err) => console.error("Customer list error:", err));
 
-            // 2. Subscribe to Customers
-            const customersCol = collection(db, 'artifacts', appId, 'public', 'data', 'customers');
-            onSnapshot(customersCol, (snapshot) => {
-                customers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                renderSettings();
-            }, (err) => console.error("Customers Sync Error:", err));
-
-            // 3. Subscribe to Settings (Singleton Doc)
-            const settingsDoc = doc(db, 'artifacts', appId, 'public', 'data', 'appSettings', 'global');
-            onSnapshot(settingsDoc, (docSnap) => {
-                if (docSnap.exists()) {
-                    settings = docSnap.data();
-                } else {
-                    // Initial seed if doc doesn't exist
-                    const initialSettings = {
-                        packages: ["Gói 2h Cơ bản", "Gói 3h Chuyên nghiệp"],
-                        backdrops: ["Trắng trơn", "Kim sa bạc"],
-                        banks: ["Tiền mặt"],
-                        locations: ["GEM Center"]
-                    };
-                    setDoc(settingsDoc, initialSettings);
-                }
-                renderSettings();
-            }, (err) => console.error("Settings Sync Error:", err));
+            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'appSettings', 'global'), (snap) => {
+                if (snap.exists()) { settings = snap.data(); window.renderSettings(); window.updateSelects(); }
+            }, (err) => console.error("Settings error:", err));
         }
 
-        // --- ACTION FUNCTIONS ---
-        window.saveEvent = async (eventData) => {
-            if (!user) return;
-            const eventsCol = collection(db, 'artifacts', appId, 'public', 'data', 'events');
-            if (eventData.id && !eventData.isNew) {
-                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'events', eventData.id);
-                delete eventData.id;
-                await updateDoc(docRef, eventData);
-            } else {
-                delete eventData.id;
-                delete eventData.isNew;
-                await addDoc(eventsCol, eventData);
-            }
-        };
-
-        window.deleteEventFromCloud = async (id) => {
-            if (!user || !confirm("Xóa sự kiện này?")) return;
-            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'events', id));
-        };
-
-        window.addCustomerToCloud = async (customerData) => {
-            if (!user) return;
-            const col = collection(db, 'artifacts', appId, 'public', 'data', 'customers');
-            await addDoc(col, customerData);
-        };
-
-        window.deleteCustomerFromCloud = async (id) => {
-            if (!user || !confirm("Xóa khách hàng này?")) return;
-            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id));
-        };
-
-        window.updateGlobalSettings = async (newSettings) => {
-            if (!user) return;
-            const settingsDoc = doc(db, 'artifacts', appId, 'public', 'data', 'appSettings', 'global');
-            await setDoc(settingsDoc, newSettings);
-        };
-
-        // --- UI & LOGIC INTEGRATION ---
-        window.renderList = () => {
-            const tbody = document.getElementById('event-list-body');
-            const empty = document.getElementById('empty-state');
-            if (events.length === 0) { tbody.innerHTML = ''; empty.classList.remove('hidden'); return; }
-            empty.classList.add('hidden');
-
-            tbody.innerHTML = events.map(ev => {
-                const debt = ev.totalPrice - ev.deposit;
-                return `
-                <tr class="hover:bg-indigo-50/20 transition-all group border-b border-slate-50">
-                    <td class="p-4">
-                        <div class="text-[10px] font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded w-fit mb-1">${ev.code}</div>
-                        <div class="font-bold text-slate-800 text-sm">${formatDateVi(ev.date)}</div>
-                        <div class="text-[10px] text-slate-400 font-medium">${ev.startTime} - ${ev.endTime}</div>
-                    </td>
-                    <td class="p-4">
-                        <div class="font-bold text-slate-900 text-sm mb-0.5">${ev.eventName}</div>
-                        <div class="text-xs text-slate-500 flex items-center gap-1 font-medium">${ev.companyName}</div>
-                        <div class="text-[10px] text-slate-500 mt-1">📍 ${ev.location}</div>
-                    </td>
-                    <td class="p-4">
-                        <div class="text-xs font-semibold text-slate-600">📦 ${ev.package}</div>
-                    </td>
-                    <td class="p-4">
-                        <div class="text-[11px] text-slate-400">Tổng: ${formatMoney(ev.totalPrice)}</div>
-                        <div class="text-xs font-bold ${debt > 0 ? 'text-orange-600' : 'text-emerald-600'} mt-0.5">
-                            ${debt > 0 ? 'Cần thu: ' + formatMoney(debt) : 'Đã tất toán'}
-                        </div>
-                    </td>
-                    <td class="p-4">
-                        <span class="status-badge status-${ev.status}">${getStatusText(ev.status)}</span>
-                    </td>
-                    <td class="p-4 text-right">
-                        <div class="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onclick="addToGoogleCalendar('${ev.id}')" class="p-2 hover:bg-white text-emerald-600 rounded-lg shadow-sm border border-slate-200">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                            </button>
-                            <button onclick="editEvent('${ev.id}')" class="p-2 hover:bg-white text-indigo-600 rounded-lg shadow-sm border border-slate-200">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                            </button>
-                            <button onclick="deleteEventFromCloud('${ev.id}')" class="p-2 hover:bg-white text-red-400 rounded-lg shadow-sm border border-slate-200">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                            </button>
-                        </div>
-                    </td>
-                </tr>`;
-            }).join('');
-        };
-
-        window.updateSummary = () => {
-            const today = new Date().toISOString().split('T')[0];
-            const activeEvents = events.filter(e => e.status !== 'cancelled');
-            
-            document.getElementById('stat-total-events').innerText = events.length;
-            document.getElementById('stat-completed-events').innerText = events.filter(e => e.status === 'completed').length;
-            document.getElementById('stat-upcoming-events').innerText = events.filter(e => e.date >= today && e.status !== 'cancelled').length;
-            
-            const revenue = activeEvents.reduce((sum, e) => sum + e.totalPrice, 0);
-            const received = activeEvents.reduce((sum, e) => sum + e.deposit, 0);
-            
-            document.getElementById('stat-total-revenue').innerText = formatMoney(revenue);
-            document.getElementById('stat-total-received').innerText = formatMoney(received);
-            document.getElementById('stat-total-debt').innerText = formatMoney(revenue - received);
-        };
-
-        window.renderSettings = () => {
-            document.getElementById('list-customers').innerHTML = customers.map(c => `
-                <tr class="border-b border-slate-50 group">
-                    <td class="py-3 font-bold text-slate-700">${c.name}</td>
-                    <td class="py-3 text-slate-500">${c.tax || '-'}</td>
-                    <td class="py-3 text-right">
-                        <button onclick="deleteCustomerFromCloud('${c.id}')" class="text-slate-300 hover:text-red-500">&times;</button>
-                    </td>
-                </tr>
-            `).join('');
-
-            const rList = (key, listId) => {
-                document.getElementById(listId).innerHTML = (settings[key] || []).map((item, idx) => `
-                    <li class="flex justify-between items-center bg-slate-50 p-2 rounded mb-1 group">
-                        <span class="text-slate-600">${item}</span>
-                        <button onclick="removeSettingItem('${key}', ${idx})" class="text-slate-300 hover:text-red-500">&times;</button>
-                    </li>
-                `).join('');
-            };
-            rList('packages', 'list-packages');
-            rList('backdrops', 'list-backdrops');
-            rList('banks', 'list-banks');
-            rList('locations', 'list-locations');
-        };
-
-        window.removeSettingItem = async (key, idx) => {
-            const newS = {...settings};
-            newS[key].splice(idx, 1);
-            await updateGlobalSettings(newS);
-        };
-
-        window.addSettingItem = async (key, inputId) => {
-            const val = document.getElementById(inputId).value.trim();
-            if (!val) return;
-            const newS = {...settings};
-            if(!newS[key]) newS[key] = [];
-            newS[key].push(val);
-            await updateGlobalSettings(newS);
-            document.getElementById(inputId).value = '';
-        };
-
-        window.addCustomer = async () => {
-            const name = document.getElementById('cust-name').value.trim();
-            if (!name) return;
-            await addCustomerToCloud({
-                name,
-                tax: document.getElementById('cust-tax').value,
-                address: document.getElementById('cust-address').value,
-                email: document.getElementById('cust-email').value
-            });
-            ['cust-name', 'cust-tax', 'cust-address', 'cust-email'].forEach(id => document.getElementById(id).value = '');
-        };
-
-        window.editEvent = (id) => {
-            const ev = events.find(e => e.id === id);
-            if (!ev) return;
-            updateSelects();
-            document.getElementById('edit-id').value = ev.id;
-            document.getElementById('event-code').value = ev.code;
-            document.getElementById('auto-code-display').innerText = `MÃ CODE: ${ev.code}`;
-            document.getElementById('company-select').value = ev.companyId;
-            document.getElementById('event-name').value = ev.eventName;
-            document.getElementById('date').value = ev.date;
-            document.getElementById('start-time').value = ev.startTime;
-            document.getElementById('end-time').value = ev.endTime;
-            document.getElementById('location-select').value = ev.location;
-            document.getElementById('package').value = ev.package;
-            document.getElementById('backdrop').value = ev.backdrop;
-            document.getElementById('total-price').value = ev.totalPrice;
-            document.getElementById('deposit').value = ev.deposit;
-            document.getElementById('is-vat').checked = ev.isVat;
-            document.getElementById('bank').value = ev.bank;
-            document.getElementById('status').value = ev.status;
-            document.getElementById('notes').value = ev.notes;
-            toggleModal(true, true);
-        };
-
-        window.addToGoogleCalendar = (id) => {
-            const ev = events.find(e => e.id === id);
-            if (!ev) return;
-            const start = ev.date.replace(/-/g, '') + 'T' + ev.startTime.replace(/:/g, '') + '00';
-            const end = ev.date.replace(/-/g, '') + 'T' + ev.endTime.replace(/:/g, '') + '00';
-            const title = encodeURIComponent(`[${ev.code}] ${ev.eventName}`);
-            const details = encodeURIComponent(`Khách: ${ev.companyName}\nGói: ${ev.package}\nĐịa điểm: ${ev.location}`);
-            const url = `https://www.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${start}/${end}&details=${details}&location=${encodeURIComponent(ev.location)}&sf=true&output=xml`;
-            window.open(url, '_blank');
-        };
-
+        // --- GLOBAL EXPORTS ---
         window.exportToExcel = () => {
-            const worksheet = XLSX.utils.json_to_sheet(events);
+            if (events.length === 0) return;
+            const dataToExport = events.map(e => ({
+                "Mã Code": e.code,
+                "Ngày": e.date,
+                "Khách hàng": e.companyName,
+                "Sự kiện": e.eventName,
+                "Địa điểm": e.location,
+                "Gói dịch vụ": e.package,
+                "Tổng tiền": e.totalPrice,
+                "Đã thanh toán": e.deposit,
+                "Còn lại": e.totalPrice - e.deposit,
+                "Trạng thái": e.status,
+                "Ghi chú": e.notes
+            }));
+            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
             const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Events");
-            XLSX.writeFile(workbook, `Photobooth_Cloud_Export.xlsx`);
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Lịch Trình");
+            XLSX.writeFile(workbook, `Lich_Photobooth_${new Date().toISOString().split('T')[0]}.xlsx`);
         };
 
-        // UI Interactions
         window.toggleModal = (show, isEdit = false) => {
             const modal = document.getElementById('modal');
             if (show) {
-                updateSelects();
+                window.updateSelects();
                 if (!isEdit) {
-                    const code = `E26${(events.length + 1).toString().padStart(3, '0')}`;
+                    const code = `PB${new Date().getFullYear().toString().slice(-2)}${(events.length + 1).toString().padStart(3, '0')}`;
                     document.getElementById('event-code').value = code;
                     document.getElementById('auto-code-display').innerText = `MÃ CODE: ${code}`;
                     document.getElementById('modal-title').innerText = "Thêm Sự Kiện Mới";
@@ -316,236 +123,447 @@
             }
         };
 
+        window.editEvent = (id) => {
+            const ev = events.find(e => e.id === id);
+            if (!ev) return;
+            window.updateSelects();
+            document.getElementById('edit-id').value = ev.id;
+            document.getElementById('event-code').value = ev.code;
+            document.getElementById('auto-code-display').innerText = `MÃ CODE: ${ev.code}`;
+            document.getElementById('company-select').value = ev.companyId || '';
+            document.getElementById('event-name').value = ev.eventName || '';
+            document.getElementById('date').value = ev.date || '';
+            document.getElementById('start-time').value = ev.startTime || '';
+            document.getElementById('end-time').value = ev.endTime || '';
+            document.getElementById('location-select').value = ev.location || '';
+            document.getElementById('package').value = ev.package || '';
+            document.getElementById('backdrop').value = ev.backdrop || '';
+            document.getElementById('total-price').value = ev.totalPrice || 0;
+            document.getElementById('deposit').value = ev.deposit || 0;
+            document.getElementById('is-vat').checked = ev.isVat || false;
+            document.getElementById('bank').value = ev.bank || '';
+            document.getElementById('status').value = ev.status || 'pending';
+            document.getElementById('notes').value = ev.notes || '';
+            window.toggleModal(true, true);
+        };
+
+        window.deleteEventFromCloud = async (id) => {
+            if (!confirm("Xóa sự kiện này khỏi hệ thống?")) return;
+            if (!user) return;
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'events', id));
+        };
+
+        window.addCustomer = async () => {
+            if (!user) return;
+            const name = document.getElementById('cust-name').value.trim();
+            if (!name) return;
+            const data = {
+                name,
+                tax: document.getElementById('cust-tax').value.trim(),
+                address: document.getElementById('cust-address').value.trim(),
+                email: document.getElementById('cust-email').value.trim()
+            };
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), data);
+            ['cust-name', 'cust-tax', 'cust-address', 'cust-email'].forEach(id => document.getElementById(id).value = '');
+        };
+
+        window.deleteCustomer = async (id) => {
+            if (!confirm("Xóa đối tác này?")) return;
+            if (!user) return;
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id));
+        };
+
+        window.addSettingItem = async (key, inputId) => {
+            if (!user) return;
+            const val = document.getElementById(inputId).value.trim();
+            if (!val) return;
+            const newS = { ...settings };
+            if (!newS[key]) newS[key] = [];
+            newS[key].push(val);
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'appSettings', 'global'), newS);
+            document.getElementById(inputId).value = '';
+        };
+
+        window.removeSettingItem = async (key, idx) => {
+            if (!user) return;
+            const newS = { ...settings };
+            newS[key].splice(idx, 1);
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'appSettings', 'global'), newS);
+        };
+
+        window.renderList = () => {
+            const tbody = document.getElementById('event-list-body');
+            const empty = document.getElementById('empty-state');
+            if (events.length === 0) { tbody.innerHTML = ''; empty.classList.remove('hidden'); return; }
+            empty.classList.add('hidden');
+
+            const now = new Date();
+            now.setHours(0,0,0,0);
+
+            tbody.innerHTML = events.map(ev => {
+                const evDate = new Date(ev.date);
+                evDate.setHours(0,0,0,0);
+                
+                const isToday = evDate.getTime() === now.getTime();
+                const debt = (ev.totalPrice || 0) - (ev.deposit || 0);
+                const formatMoney = (n) => new Intl.NumberFormat('vi-VN').format(n) + 'đ';
+                const formatDateVi = (s) => s ? s.split('-').reverse().join('/') : "--";
+                const getStatusText = (s) => ({ pending: 'Chờ xác nhận', confirmed: 'Đã xác nhận', deposited: 'Đã đặt cọc', waiting_payment: 'Chờ thanh toán', completed: 'Hoàn thành', cancelled: 'Hủy' }[s] || s);
+
+                return `
+                <tr class="hover:bg-indigo-50/20 transition-all group border-b border-slate-50 ${isToday ? 'bg-indigo-50/30' : ''}">
+                    <td class="p-4">
+                        <div class="flex items-center gap-2">
+                            ${isToday ? '<span class="w-2 h-2 rounded-full bg-indigo-600 pulse-now"></span>' : ''}
+                            <div>
+                                <div class="text-[10px] font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded w-fit mb-1">${ev.code}</div>
+                                <div class="font-bold text-slate-800 text-sm">${formatDateVi(ev.date)}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="p-4">
+                        <div class="font-bold text-slate-900 text-sm mb-0.5">${ev.eventName}</div>
+                        <div class="text-xs text-slate-500">${ev.companyName}</div>
+                        <div class="text-[10px] text-slate-400 mt-1">📍 ${ev.location}</div>
+                    </td>
+                    <td class="p-4"><div class="text-xs font-semibold text-slate-600">${ev.package}</div></td>
+                    <td class="p-4">
+                        <div class="text-[11px] text-slate-400">${formatMoney(ev.totalPrice)}</div>
+                        <div class="text-xs font-bold ${debt > 0 ? 'text-orange-600' : 'text-emerald-600'} mt-0.5">
+                            ${debt > 0 ? 'Còn: ' + formatMoney(debt) : 'Đã xong'}
+                        </div>
+                    </td>
+                    <td class="p-4"><span class="status-badge status-${ev.status}">${getStatusText(ev.status)}</span></td>
+                    <td class="p-4 text-right">
+                        <div class="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onclick="window.addToGoogleCalendar('${ev.id}')" class="p-2 hover:bg-white text-emerald-600 rounded-lg border border-slate-200"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                            <button onclick="window.editEvent('${ev.id}')" class="p-2 hover:bg-white text-indigo-600 rounded-lg border border-slate-200"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                            <button onclick="window.deleteEventFromCloud('${ev.id}')" class="p-2 hover:bg-white text-red-400 rounded-lg border border-slate-200"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                        </div>
+                    </td>
+                </tr>`;
+            }).join('');
+        };
+
+        window.updateSummary = () => {
+            const now = new Date();
+            now.setHours(0,0,0,0);
+
+            const active = events.filter(e => e.status !== 'cancelled');
+            
+            const upcoming = events.filter(e => {
+                const d = new Date(e.date); d.setHours(0,0,0,0);
+                return d.getTime() > now.getTime() && e.status !== 'cancelled' && e.status !== 'completed';
+            }).length;
+
+            const ongoing = events.filter(e => {
+                const d = new Date(e.date); d.setHours(0,0,0,0);
+                return d.getTime() === now.getTime() && e.status !== 'cancelled';
+            }).length;
+
+            const completed = events.filter(e => {
+                const d = new Date(e.date); d.setHours(0,0,0,0);
+                return (d.getTime() < now.getTime() || e.status === 'completed') && e.status !== 'cancelled';
+            }).length;
+
+            const rev = active.reduce((s, e) => s + (e.totalPrice || 0), 0);
+            const rec = active.reduce((s, e) => s + (e.deposit || 0), 0);
+            const format = (n) => new Intl.NumberFormat('vi-VN').format(n) + 'đ';
+            
+            document.getElementById('stat-upcoming').innerText = upcoming;
+            document.getElementById('stat-ongoing').innerText = ongoing;
+            document.getElementById('stat-completed').innerText = completed;
+            document.getElementById('stat-total-revenue').innerText = format(rev);
+            document.getElementById('stat-total-received').innerText = format(rec);
+            document.getElementById('stat-total-debt').innerText = format(rev - rec);
+        };
+
+        window.renderSettings = () => {
+            document.getElementById('list-customers').innerHTML = customers.map(c => `
+                <tr class="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                    <td class="p-3">
+                        <div class="font-bold text-slate-800 text-sm">${c.name}</div>
+                        <div class="text-[10px] text-slate-400 font-mono">${c.tax || 'Không MST'}</div>
+                    </td>
+                    <td class="p-3">
+                        <div class="text-xs text-slate-600">${c.address || '-'}</div>
+                        <div class="text-[10px] text-indigo-500">${c.email || '-'}</div>
+                    </td>
+                    <td class="p-3 text-right">
+                        <button onclick="window.deleteCustomer('${c.id}')" class="text-slate-300 hover:text-red-500 transition-colors p-2 text-xl">&times;</button>
+                    </td>
+                </tr>`).join('');
+            
+            const rList = (key, listId) => {
+                document.getElementById(listId).innerHTML = (settings[key] || []).map((item, idx) => `
+                    <li class="flex justify-between items-center bg-slate-50 p-2 rounded-xl mb-1 text-xs px-3">
+                        <span class="text-slate-600">${item}</span>
+                        <button onclick="window.removeSettingItem('${key}', ${idx})" class="text-slate-300 hover:text-red-500">&times;</button>
+                    </li>`).join('');
+            };
+            rList('packages', 'list-packages'); rList('backdrops', 'list-backdrops');
+            rList('banks', 'list-banks'); rList('locations', 'list-locations');
+        };
+
         window.updateSelects = () => {
-            document.getElementById('company-select').innerHTML = '<option value="">-- Chọn Khách hàng --</option>' + customers.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-            document.getElementById('location-select').innerHTML = '<option value="">-- Chọn Địa điểm --</option>' + settings.locations.map(l => `<option value="${l}">${l}</option>`).join('');
-            document.getElementById('package').innerHTML = settings.packages.map(p => `<option value="${p}">${p}</option>`).join('');
-            document.getElementById('backdrop').innerHTML = settings.backdrops.map(b => `<option value="${b}">${b}</option>`).join('');
-            document.getElementById('bank').innerHTML = settings.banks.map(bk => `<option value="${bk}">${bk}</option>`).join('');
+            const fill = (id, list, placeholder = "") => {
+                let h = placeholder ? `<option value="">${placeholder}</option>` : "";
+                h += list.map(i => typeof i === 'object' ? `<option value="${i.id}">${i.name}</option>` : `<option value="${i}">${i}</option>`).join('');
+                document.getElementById(id).innerHTML = h;
+            };
+            fill('company-select', customers, "-- Chọn Đối tác --");
+            fill('location-select', settings.locations || [], "-- Chọn Địa điểm --");
+            fill('package', settings.packages || []); fill('backdrop', settings.backdrops || []); fill('bank', settings.banks || []);
+        };
+
+        window.addToGoogleCalendar = (id) => {
+            const ev = events.find(e => e.id === id); if (!ev) return;
+            const start = ev.date.replace(/-/g, '') + 'T' + (ev.startTime || '08:00').replace(/:/g, '') + '00';
+            const end = ev.date.replace(/-/g, '') + 'T' + (ev.endTime || '10:00').replace(/:/g, '') + '00';
+            const url = `https://www.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(ev.eventName)}&dates=${start}/${end}&location=${encodeURIComponent(ev.location)}`;
+            window.open(url, '_blank');
         };
 
         window.showView = (view) => {
             document.getElementById('view-list').classList.toggle('hidden', view !== 'list');
             document.getElementById('view-settings').classList.toggle('hidden', view !== 'settings');
-            document.getElementById('tab-list').className = view === 'list' ? 'pb-3 px-2 tab-active transition-all' : 'pb-3 px-2 text-slate-400 hover:text-slate-600 transition-all font-medium';
-            document.getElementById('tab-settings').className = view === 'settings' ? 'pb-3 px-2 tab-active transition-all' : 'pb-3 px-2 text-slate-400 hover:text-slate-600 transition-all font-medium';
+            document.getElementById('tab-list').className = view === 'list' ? 'pb-4 px-2 tab-active transition-all font-bold text-xs uppercase tracking-widest' : 'pb-4 px-2 text-slate-400 hover:text-slate-600 transition-all font-bold text-xs uppercase tracking-widest';
+            document.getElementById('tab-settings').className = view === 'settings' ? 'pb-4 px-2 tab-active transition-all font-bold text-xs uppercase tracking-widest' : 'pb-4 px-2 text-slate-400 hover:text-slate-600 transition-all font-bold text-xs uppercase tracking-widest';
         };
 
-        // Form Submit
         document.getElementById('event-form').addEventListener('submit', async (e) => {
             e.preventDefault();
+            if (!user) return;
+            const editId = document.getElementById('edit-id').value;
             const companyId = document.getElementById('company-select').value;
             const company = customers.find(c => c.id === companyId);
-            const editId = document.getElementById('edit-id').value;
-
             const data = {
-                id: editId || null,
-                isNew: !editId,
-                code: document.getElementById('event-code').value,
-                companyName: company ? company.name : 'Khách vãng lai',
-                companyId: companyId,
-                eventName: document.getElementById('event-name').value,
-                date: document.getElementById('date').value,
-                startTime: document.getElementById('start-time').value,
-                endTime: document.getElementById('end-time').value,
-                location: document.getElementById('location-select').value,
-                package: document.getElementById('package').value,
-                backdrop: document.getElementById('backdrop').value,
-                totalPrice: parseFloat(document.getElementById('total-price').value) || 0,
-                deposit: parseFloat(document.getElementById('deposit').value) || 0,
-                isVat: document.getElementById('is-vat').checked,
-                bank: document.getElementById('bank').value,
-                status: document.getElementById('status').value,
-                notes: document.getElementById('notes').value
+                code: document.getElementById('event-code').value, companyId, companyName: company ? company.name : 'Khách vãng lai',
+                eventName: document.getElementById('event-name').value, date: document.getElementById('date').value,
+                startTime: document.getElementById('start-time').value, endTime: document.getElementById('end-time').value,
+                location: document.getElementById('location-select').value, package: document.getElementById('package').value,
+                backdrop: document.getElementById('backdrop').value, totalPrice: parseFloat(document.getElementById('total-price').value) || 0,
+                deposit: parseFloat(document.getElementById('deposit').value) || 0, isVat: document.getElementById('is-vat').checked,
+                bank: document.getElementById('bank').value, status: document.getElementById('status').value, notes: document.getElementById('notes').value
             };
-
-            await saveEvent(data);
-            toggleModal(false);
+            if (editId) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'events', editId), data);
+            else await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'events'), data);
+            window.toggleModal(false);
         });
 
-        // Initialize App
         window.onload = () => {
-            // Time Selectors init
-            const starts = document.getElementById('start-time');
-            const ends = document.getElementById('end-time');
-            let options = '';
-            for (let h = 0; h < 24; h++) {
-                for (let m = 0; m < 60; m += 15) {
-                    const t = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-                    options += `<option value="${t}">${t}</option>`;
+            const tOpts = (id) => {
+                let h = ""; for(let i=0; i<24; i++) for(let j=0; j<60; j+=30) {
+                    const t = `${i.toString().padStart(2,'0')}:${j.toString().padStart(2,'0')}`;
+                    h += `<option value="${t}">${t}</option>`;
                 }
-            }
-            starts.innerHTML = options;
-            ends.innerHTML = options;
-            
+                document.getElementById(id).innerHTML = h;
+            };
+            tOpts('start-time'); tOpts('end-time');
             initAuth();
         };
     </script>
-
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
-        .status-badge { padding: 4px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; border-width: 1px; }
-        .status-pending { background-color: #fef3c7; color: #92400e; border-color: #fde68a; }
-        .status-confirmed { background-color: #e0f2fe; color: #0369a1; border-color: #bae6fd; }
-        .status-deposited { background-color: #dcfce7; color: #166534; border-color: #bbf7d0; }
-        .status-waiting_payment { background-color: #ffedd5; color: #9a3412; border-color: #fed7aa; }
-        .status-completed { background-color: #f1f5f9; color: #1e293b; border-color: #e2e8f0; }
-        .status-cancelled { background-color: #fee2e2; color: #991b1b; border-color: #fecaca; }
-        .tab-active { border-bottom: 3px solid #4f46e5; color: #4f46e5; font-weight: 700; }
-    </style>
 </head>
-<body class="p-4 md:p-6">
+<body class="p-4 md:p-8">
     <div class="max-w-7xl mx-auto">
         <!-- Header -->
-        <header class="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+        <header class="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-[32px] shadow-sm border border-slate-100">
             <div>
-                <h1 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                    <span class="bg-indigo-600 text-white p-1.5 rounded-lg text-xl">☁️</span> 
-                    Photobooth Cloud <span class="text-indigo-600 text-sm align-top">v6.0</span>
+                <h1 class="text-2xl font-black text-slate-800 flex items-center gap-2">
+                    <span class="bg-indigo-600 text-white p-1.5 rounded-xl text-xl">☁️</span> 
+                    Photobooth Pro <span class="text-indigo-600 text-xs font-bold bg-indigo-50 px-2 py-1 rounded-lg ml-2">v6.4 Cloud</span>
                 </h1>
-                <p class="text-slate-500 text-sm">Dữ liệu được đồng bộ hóa trực tuyến</p>
+                <p class="text-slate-400 text-sm mt-1">Quản lý sự kiện thông minh</p>
             </div>
             <div class="flex gap-2">
-                <button onclick="exportToExcel()" class="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 px-4 py-2.5 rounded-xl font-bold transition-all border border-emerald-200">Xuất Excel</button>
-                <button onclick="toggleModal(true)" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-indigo-100">+ Thêm Sự Kiện</button>
+                <button onclick="window.exportToExcel()" class="bg-emerald-50 text-emerald-700 px-5 py-2.5 rounded-2xl font-bold border border-emerald-100 hover:bg-emerald-100 transition-all text-sm">Xuất Excel</button>
+                <button onclick="window.toggleModal(true)" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-2xl font-bold shadow-xl shadow-indigo-100 transition-all text-sm">+ Thêm Sự Kiện</button>
             </div>
         </header>
 
-        <!-- Stats -->
-        <div class="grid grid-cols-2 md:grid-cols-6 gap-4 mb-8">
-            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm"><p class="text-[10px] font-bold text-slate-400 uppercase mb-1">Tổng sự kiện</p><p id="stat-total-events" class="text-2xl font-bold text-slate-800">0</p></div>
-            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm"><p class="text-[10px] font-bold text-emerald-500 uppercase mb-1">Hoàn thành</p><p id="stat-completed-events" class="text-2xl font-bold text-slate-800">0</p></div>
-            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm border-l-4 border-l-indigo-500"><p class="text-[10px] font-bold text-indigo-500 uppercase mb-1">Sắp tới</p><p id="stat-upcoming-events" class="text-2xl font-bold text-slate-800">0</p></div>
-            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm"><p class="text-[10px] font-bold text-slate-400 uppercase mb-1">Doanh thu</p><p id="stat-total-revenue" class="text-lg font-bold text-slate-800">0đ</p></div>
-            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm"><p class="text-[10px] font-bold text-blue-500 uppercase mb-1">Đã nhận</p><p id="stat-total-received" class="text-lg font-bold text-blue-600">0đ</p></div>
-            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm"><p class="text-[10px] font-bold text-orange-500 uppercase mb-1">Công nợ</p><p id="stat-total-debt" class="text-lg font-bold text-orange-600">0đ</p></div>
-        </div>
-
-        <!-- Tabs -->
-        <div class="flex gap-6 border-b border-slate-200 mb-6 px-2">
-            <button onclick="showView('list')" id="tab-list" class="pb-3 px-2 tab-active transition-all">Lịch Trình Sự Kiện</button>
-            <button onclick="showView('settings')" id="tab-settings" class="pb-3 px-2 text-slate-400 hover:text-slate-600 transition-all font-medium">Cấu Hình Cloud</button>
-        </div>
-
-        <!-- List View -->
-        <div id="view-list">
-            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse min-w-[1000px]">
-                        <thead class="bg-slate-50/50 border-b border-slate-200">
-                            <tr>
-                                <th class="p-4 text-[11px] font-bold text-slate-400 uppercase">Mã / Ngày</th>
-                                <th class="p-4 text-[11px] font-bold text-slate-400 uppercase">Sự kiện & Khách</th>
-                                <th class="p-4 text-[11px] font-bold text-slate-400 uppercase">Dịch vụ</th>
-                                <th class="p-4 text-[11px] font-bold text-slate-400 uppercase">Tài chính</th>
-                                <th class="p-4 text-[11px] font-bold text-slate-400 uppercase">Trạng thái</th>
-                                <th class="p-4 text-[11px] font-bold text-slate-400 uppercase text-right">Thao tác</th>
-                            </tr>
-                        </thead>
-                        <tbody id="event-list-body" class="divide-y divide-slate-100"></tbody>
-                    </table>
+        <!-- Dynamic Status Dashboard -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="bg-white p-6 rounded-[32px] border-2 border-indigo-50 shadow-sm flex items-center justify-between">
+                <div>
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Đang diễn ra (Hôm nay)</p>
+                    <p id="stat-ongoing" class="text-3xl font-black text-indigo-600">0</p>
                 </div>
-                <div id="empty-state" class="p-20 text-center hidden"><p class="text-slate-400 font-medium">Đang tải dữ liệu từ mây hoặc chưa có sự kiện...</p></div>
+                <div class="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-500 text-xl">⚡</div>
+            </div>
+            <div class="bg-white p-6 rounded-[32px] border-2 border-slate-50 shadow-sm flex items-center justify-between">
+                <div>
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Sắp diễn ra</p>
+                    <p id="stat-upcoming" class="text-3xl font-black text-slate-800">0</p>
+                </div>
+                <div class="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 text-xl">📅</div>
+            </div>
+            <div class="bg-white p-6 rounded-[32px] border-2 border-emerald-50 shadow-sm flex items-center justify-between">
+                <div>
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Đã hoàn thành</p>
+                    <p id="stat-completed" class="text-3xl font-black text-emerald-600">0</p>
+                </div>
+                <div class="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-500 text-xl">✅</div>
             </div>
         </div>
 
-        <!-- Settings View -->
-        <div id="view-settings" class="hidden space-y-6">
-            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                <h3 class="font-bold text-lg mb-4 text-slate-800">🏢 Khách hàng (Đồng bộ Cloud)</h3>
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6 bg-indigo-50/30 p-4 rounded-xl border border-dashed border-indigo-200">
-                    <input type="text" id="cust-name" placeholder="Tên Công ty..." class="px-3 py-2 border rounded-lg text-sm outline-none">
-                    <input type="text" id="cust-tax" placeholder="Mã số thuế..." class="px-3 py-2 border rounded-lg text-sm outline-none">
-                    <input type="text" id="cust-address" placeholder="Địa chỉ..." class="px-3 py-2 border rounded-lg text-sm outline-none">
-                    <button onclick="addCustomer()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700">Thêm Khách</button>
+        <!-- Financial Summary Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            <div class="bg-blue-50 p-5 rounded-[28px] border border-blue-100">
+                <p class="text-[10px] font-bold text-blue-500 uppercase mb-2 tracking-wider">Doanh thu dự kiến</p>
+                <p id="stat-total-revenue" class="text-xl font-black text-blue-700">0đ</p>
+            </div>
+            <div class="bg-white p-5 rounded-[28px] border border-slate-100 shadow-sm">
+                <p class="text-[10px] font-bold text-emerald-500 uppercase mb-2 tracking-wider">Thực tế đã nhận</p>
+                <p id="stat-total-received" class="text-xl font-black text-emerald-600">0đ</p>
+            </div>
+            <div class="bg-orange-50 p-5 rounded-[28px] border border-orange-100">
+                <p class="text-[10px] font-bold text-orange-500 uppercase mb-2 tracking-wider">Công nợ cần thu</p>
+                <p id="stat-total-debt" class="text-xl font-black text-orange-600">0đ</p>
+            </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="flex gap-8 border-b border-slate-200 mb-8 px-4">
+            <button onclick="window.showView('list')" id="tab-list" class="pb-4 px-2 tab-active transition-all font-bold text-xs uppercase tracking-widest">Lịch Trình Chi Tiết</button>
+            <button onclick="window.showView('settings')" id="tab-settings" class="pb-4 px-2 text-slate-400 hover:text-slate-600 transition-all font-bold text-xs uppercase tracking-widest">Đối Tác & Cài Đặt</button>
+        </div>
+
+        <!-- View: List -->
+        <div id="view-list">
+            <div class="bg-white rounded-[32px] shadow-sm border border-slate-100 overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse min-w-[1000px]">
+                        <thead class="bg-slate-50/50 border-b border-slate-100">
+                            <tr>
+                                <th class="p-5 text-[10px] font-bold text-slate-400 uppercase">Mã / Ngày</th>
+                                <th class="p-5 text-[10px] font-bold text-slate-400 uppercase">Sự kiện & Đối tác</th>
+                                <th class="p-5 text-[10px] font-bold text-slate-400 uppercase">Dịch vụ</th>
+                                <th class="p-5 text-[10px] font-bold text-slate-400 uppercase">Tài chính</th>
+                                <th class="p-5 text-[10px] font-bold text-slate-400 uppercase">Trạng thái</th>
+                                <th class="p-5 text-[10px] font-bold text-slate-400 uppercase text-right">Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody id="event-list-body" class="divide-y divide-slate-50"></tbody>
+                    </table>
                 </div>
-                <div class="overflow-x-auto max-h-60 overflow-y-auto">
-                    <table class="w-full text-sm">
-                        <thead class="text-slate-400 border-b sticky top-0 bg-white">
-                            <tr><th class="text-left pb-2">Tên</th><th class="text-left pb-2">MST</th><th class="text-right pb-2">Xóa</th></tr>
+                <div id="empty-state" class="p-24 text-center">
+                    <p class="text-slate-300 font-medium">Chưa có dữ liệu sự kiện nào trong hệ thống.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- View: Settings -->
+        <div id="view-settings" class="hidden space-y-8">
+            <div class="bg-white p-8 rounded-[32px] shadow-sm border border-slate-100">
+                <h3 class="font-black text-xl mb-6 text-slate-800">🏢 Quản lý Đối tác</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 mb-8 bg-slate-50 p-6 rounded-[24px]">
+                    <div class="lg:col-span-1">
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1 px-1">Tên Đối tác</label>
+                        <input type="text" id="cust-name" placeholder="Tên công ty..." class="w-full px-4 py-2.5 border rounded-xl text-sm outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1 px-1">Mã số thuế</label>
+                        <input type="text" id="cust-tax" placeholder="MST..." class="w-full px-4 py-2.5 border rounded-xl text-sm outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1 px-1">Email</label>
+                        <input type="email" id="cust-email" placeholder="email@company.com" class="w-full px-4 py-2.5 border rounded-xl text-sm outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1 px-1">Địa chỉ</label>
+                        <input type="text" id="cust-address" placeholder="Địa chỉ trụ sở..." class="w-full px-4 py-2.5 border rounded-xl text-sm outline-none">
+                    </div>
+                    <div class="flex items-end">
+                        <button onclick="window.addCustomer()" class="w-full bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">Thêm</button>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead class="border-b border-slate-100">
+                            <tr>
+                                <th class="p-3 text-[10px] font-bold text-slate-400 uppercase">Đối tác</th>
+                                <th class="p-3 text-[10px] font-bold text-slate-400 uppercase">Thông tin liên hệ</th>
+                                <th class="p-3 text-right"></th>
+                            </tr>
                         </thead>
                         <tbody id="list-customers"></tbody>
                     </table>
                 </div>
             </div>
             
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 class="font-bold mb-4">📍 Địa điểm</h3>
-                    <div class="flex gap-2 mb-4"><input type="text" id="new-location" class="flex-1 px-3 py-2 border rounded-lg text-sm"><button onclick="addSettingItem('locations', 'new-location')" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">+</button></div>
-                    <ul id="list-locations" class="space-y-1 text-sm"></ul>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="bg-white p-6 rounded-[28px] shadow-sm border border-slate-100">
+                    <h4 class="font-bold mb-4 text-xs text-slate-400 uppercase tracking-widest">Địa điểm</h4>
+                    <div class="flex gap-2 mb-4"><input type="text" id="new-location" class="flex-1 px-3 py-2 border rounded-xl text-sm outline-none"><button onclick="window.addSettingItem('locations', 'new-location')" class="bg-indigo-600 text-white px-3 py-2 rounded-xl font-bold">+</button></div>
+                    <ul id="list-locations"></ul>
                 </div>
-                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 class="font-bold mb-4">📦 Gói dịch vụ</h3>
-                    <div class="flex gap-2 mb-4"><input type="text" id="new-package" class="flex-1 px-3 py-2 border rounded-lg text-sm"><button onclick="addSettingItem('packages', 'new-package')" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">+</button></div>
-                    <ul id="list-packages" class="space-y-1 text-sm"></ul>
+                <div class="bg-white p-6 rounded-[28px] shadow-sm border border-slate-100">
+                    <h4 class="font-bold mb-4 text-xs text-slate-400 uppercase tracking-widest">Gói dịch vụ</h4>
+                    <div class="flex gap-2 mb-4"><input type="text" id="new-package" class="flex-1 px-3 py-2 border rounded-xl text-sm outline-none"><button onclick="window.addSettingItem('packages', 'new-package')" class="bg-indigo-600 text-white px-3 py-2 rounded-xl font-bold">+</button></div>
+                    <ul id="list-packages"></ul>
                 </div>
-                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 class="font-bold mb-4">🖼️ Mẫu Backdrop</h3>
-                    <div class="flex gap-2 mb-4"><input type="text" id="new-backdrop" class="flex-1 px-3 py-2 border rounded-lg text-sm"><button onclick="addSettingItem('backdrops', 'new-backdrop')" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">+</button></div>
-                    <ul id="list-backdrops" class="space-y-1 text-sm"></ul>
+                <div class="bg-white p-6 rounded-[28px] shadow-sm border border-slate-100">
+                    <h4 class="font-bold mb-4 text-xs text-slate-400 uppercase tracking-widest">Mẫu Backdrop</h4>
+                    <div class="flex gap-2 mb-4"><input type="text" id="new-backdrop" class="flex-1 px-3 py-2 border rounded-xl text-sm outline-none"><button onclick="window.addSettingItem('backdrops', 'new-backdrop')" class="bg-indigo-600 text-white px-3 py-2 rounded-xl font-bold">+</button></div>
+                    <ul id="list-backdrops"></ul>
                 </div>
-                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 class="font-bold mb-4">🏦 Ngân hàng</h3>
-                    <div class="flex gap-2 mb-4"><input type="text" id="new-bank" class="flex-1 px-3 py-2 border rounded-lg text-sm"><button onclick="addSettingItem('banks', 'new-bank')" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">+</button></div>
-                    <ul id="list-banks" class="space-y-1 text-sm"></ul>
+                <div class="bg-white p-6 rounded-[28px] shadow-sm border border-slate-100">
+                    <h4 class="font-bold mb-4 text-xs text-slate-400 uppercase tracking-widest">Ngân hàng</h4>
+                    <div class="flex gap-2 mb-4"><input type="text" id="new-bank" class="flex-1 px-3 py-2 border rounded-xl text-sm outline-none"><button onclick="window.addSettingItem('banks', 'new-bank')" class="bg-indigo-600 text-white px-3 py-2 rounded-xl font-bold">+</button></div>
+                    <ul id="list-banks"></ul>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Modal Form -->
-    <div id="modal" class="fixed inset-0 bg-slate-900/60 hidden z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-        <div class="bg-white rounded-3xl w-full max-w-4xl max-h-[92vh] overflow-hidden shadow-2xl flex flex-col">
-            <div class="p-6 border-b flex justify-between items-center bg-slate-50/50">
+    <div id="modal" class="fixed inset-0 bg-slate-900/60 hidden z-50 flex items-center justify-center p-4 backdrop-blur-md">
+        <div class="bg-white rounded-[40px] w-full max-w-4xl max-h-[92vh] overflow-hidden shadow-2xl flex flex-col">
+            <div class="p-8 border-b flex justify-between items-center bg-slate-50/50">
                 <div>
-                    <h2 class="text-xl font-bold text-slate-800" id="modal-title">Chi Tiết Sự Kiện</h2>
-                    <p id="auto-code-display" class="text-[10px] font-mono text-indigo-600 font-bold mt-1 bg-indigo-50 px-2 py-0.5 rounded w-fit uppercase"></p>
+                    <h2 class="text-xl font-black text-slate-800" id="modal-title">Sự Kiện</h2>
+                    <p id="auto-code-display" class="text-[10px] font-mono text-indigo-600 font-bold mt-2 bg-indigo-50 px-3 py-1 rounded-lg w-fit uppercase"></p>
                 </div>
-                <button onclick="toggleModal(false)" class="text-slate-400 hover:text-slate-600 text-2xl">&times;</button>
+                <button onclick="window.toggleModal(false)" class="text-slate-400 hover:text-slate-600 p-2 text-2xl">&times;</button>
             </div>
-            
-            <form id="event-form" class="p-6 overflow-y-auto flex-1">
-                <input type="hidden" id="edit-id">
-                <input type="hidden" id="event-code">
+            <form id="event-form" class="p-8 overflow-y-auto flex-1 space-y-6">
+                <input type="hidden" id="edit-id"><input type="hidden" id="event-code">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div class="space-y-4">
-                        <h3 class="text-[11px] font-bold text-indigo-600 uppercase border-b pb-1">Cơ bản</h3>
-                        <div><label class="block text-xs font-bold text-slate-500 mb-1">Công ty *</label><select id="company-select" required class="w-full px-3 py-2.5 border rounded-xl"></select></div>
-                        <div><label class="block text-xs font-bold text-slate-500 mb-1">Tên sự kiện *</label><input type="text" id="event-name" required class="w-full px-3 py-2.5 border rounded-xl"></div>
-                        <div class="grid grid-cols-2 gap-3">
-                            <div><label class="block text-xs font-bold text-slate-500 mb-1">Ngày *</label><input type="date" id="date" required class="w-full px-3 py-2.5 border rounded-xl"></div>
-                            <div><label class="block text-xs font-bold text-slate-500 mb-1">Địa điểm *</label><select id="location-select" required class="w-full px-3 py-2.5 border rounded-xl"></select></div>
+                        <div><label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Đối tác *</label><select id="company-select" required class="w-full px-4 py-3 border rounded-2xl outline-none"></select></div>
+                        <div><label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Tên sự kiện *</label><input type="text" id="event-name" required class="w-full px-4 py-3 border rounded-2xl outline-none"></div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div><label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Ngày *</label><input type="date" id="date" required class="w-full px-4 py-3 border rounded-2xl outline-none"></div>
+                            <div><label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Địa điểm *</label><select id="location-select" required class="w-full px-4 py-3 border rounded-2xl outline-none"></select></div>
                         </div>
-                        <div class="grid grid-cols-2 gap-3">
-                            <div><label class="block text-xs font-bold text-slate-500 mb-1">Bắt đầu</label><select id="start-time" class="w-full px-3 py-2.5 border rounded-xl"></select></div>
-                            <div><label class="block text-xs font-bold text-slate-500 mb-1">Kết thúc</label><select id="end-time" class="w-full px-3 py-2.5 border rounded-xl"></select></div>
-                        </div>
-                        <div class="grid grid-cols-2 gap-3">
-                            <div><label class="block text-xs font-bold text-slate-500 mb-1">Gói</label><select id="package" class="w-full px-3 py-2.5 border rounded-xl"></select></div>
-                            <div><label class="block text-xs font-bold text-slate-500 mb-1">Mẫu</label><select id="backdrop" class="w-full px-3 py-2.5 border rounded-xl"></select></div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div><label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Bắt đầu</label><select id="start-time" class="w-full px-4 py-3 border rounded-2xl outline-none"></select></div>
+                            <div><label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Kết thúc</label><select id="end-time" class="w-full px-4 py-3 border rounded-2xl outline-none"></select></div>
                         </div>
                     </div>
                     <div class="space-y-4">
-                        <h3 class="text-[11px] font-bold text-emerald-600 uppercase border-b pb-1">Tài chính</h3>
-                        <div class="grid grid-cols-2 gap-3">
-                            <div><label class="block text-xs font-bold text-slate-500 mb-1">Tổng chi</label><input type="number" id="total-price" value="0" class="w-full px-3 py-2.5 border rounded-xl"></div>
-                            <div><label class="block text-xs font-bold text-slate-500 mb-1">Đã cọc</label><input type="number" id="deposit" value="0" class="w-full px-3 py-2.5 border rounded-xl"></div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div><label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Gói dịch vụ</label><select id="package" class="w-full px-4 py-3 border rounded-2xl outline-none"></select></div>
+                            <div><label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Mẫu Backdrop</label><select id="backdrop" class="w-full px-4 py-3 border rounded-2xl outline-none"></select></div>
                         </div>
-                        <div class="flex items-center gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                            <input type="checkbox" id="is-vat" class="w-5 h-5"><label for="is-vat" class="text-sm font-semibold text-slate-700">Xuất hoá đơn VAT</label>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div><label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Tổng tiền (VNĐ)</label><input type="number" id="total-price" value="0" class="w-full px-4 py-3 border rounded-2xl outline-none font-bold text-emerald-600"></div>
+                            <div><label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Đã cọc (VNĐ)</label><input type="number" id="deposit" value="0" class="w-full px-4 py-3 border rounded-2xl outline-none font-bold text-blue-600"></div>
                         </div>
-                        <div class="grid grid-cols-2 gap-3">
-                            <div><label class="block text-xs font-bold text-slate-500 mb-1">Ngân hàng</label><select id="bank" class="w-full px-3 py-2.5 border rounded-xl"></select></div>
-                            <div><label class="block text-xs font-bold text-slate-500 mb-1">Trạng thái</label><select id="status" class="w-full px-3 py-2.5 border rounded-xl">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div><label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Ngân hàng</label><select id="bank" class="w-full px-4 py-3 border rounded-2xl outline-none"></select></div>
+                            <div><label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Trạng thái</label><select id="status" class="w-full px-4 py-3 border rounded-2xl bg-indigo-600 text-white font-bold outline-none">
                                 <option value="pending">Chờ xác nhận</option><option value="confirmed">Đã xác nhận</option><option value="deposited">Đã đặt cọc</option><option value="waiting_payment">Chờ thanh toán</option><option value="completed">Hoàn thành</option><option value="cancelled">Hủy</option>
                             </select></div>
                         </div>
-                        <div><label class="block text-xs font-bold text-slate-500 mb-1">Ghi chú</label><textarea id="notes" rows="3" class="w-full px-3 py-2.5 border rounded-xl text-sm"></textarea></div>
+                        <div class="flex items-center gap-3 bg-slate-50 p-4 rounded-2xl"><input type="checkbox" id="is-vat" class="w-5 h-5"><label for="is-vat" class="text-xs font-bold text-slate-700">Xuất VAT</label></div>
                     </div>
                 </div>
-                <div class="flex gap-3 pt-6 mt-6 border-t"><button type="submit" class="flex-1 bg-indigo-600 text-white py-3.5 rounded-2xl font-bold shadow-xl">LƯU ĐÁM MÂY</button><button type="button" onclick="toggleModal(false)" class="px-8 bg-slate-100 text-slate-500 py-3.5 rounded-2xl font-bold">HỦY</button></div>
+                <textarea id="notes" rows="2" class="w-full border border-slate-100 rounded-2xl p-4 text-sm outline-none focus:ring-4 ring-indigo-50" placeholder="Ghi chú..."></textarea>
+                <div class="flex gap-4 pt-4">
+                    <button type="submit" class="flex-1 bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-xl uppercase tracking-widest">Lưu Lên Cloud</button>
+                    <button type="button" onclick="window.toggleModal(false)" class="px-10 bg-slate-100 text-slate-500 py-4 rounded-2xl font-bold">HỦY BỎ</button>
+                </div>
             </form>
         </div>
     </div>
