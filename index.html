@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Photobooth Pro Manager v5.2</title>
+    <title>Photobooth Pro Manager v5.4</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Thư viện Export Excel -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
         body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
@@ -19,6 +21,8 @@
         .status-cancelled { background-color: #fee2e2; color: #991b1b; border-color: #fecaca; }
 
         .tab-active { border-bottom: 3px solid #4f46e5; color: #4f46e5; font-weight: 700; }
+        .stat-card { transition: transform 0.2s; }
+        .stat-card:hover { transform: translateY(-2px); }
     </style>
 </head>
 <body class="p-4 md:p-6">
@@ -28,16 +32,48 @@
             <div>
                 <h1 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
                     <span class="bg-indigo-600 text-white p-1.5 rounded-lg text-xl">📸</span> 
-                    Photobooth Pro <span class="text-indigo-600 text-sm align-top">v5.2</span>
+                    Photobooth Pro <span class="text-indigo-600 text-sm align-top">v5.4</span>
                 </h1>
-                <p class="text-slate-500 text-sm">Quản lý sự kiện, khách hàng & địa điểm</p>
+                <p class="text-slate-500 text-sm">Quản lý sự kiện, khách hàng & tài chính</p>
             </div>
             <div class="flex gap-2">
+                <button onclick="exportToExcel()" class="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 px-4 py-2.5 rounded-xl font-bold transition-all flex items-center gap-2 border border-emerald-200">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    <span>Xuất Excel</span>
+                </button>
                 <button onclick="openNewEventModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-indigo-100 flex items-center gap-2">
                     <span>+ Thêm Sự Kiện</span>
                 </button>
             </div>
         </header>
+
+        <!-- Dashboard Summary -->
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+            <div class="stat-card bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Tổng sự kiện</p>
+                <p id="stat-total-events" class="text-2xl font-bold text-slate-800">0</p>
+            </div>
+            <div class="stat-card bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <p class="text-[10px] font-bold text-emerald-500 uppercase tracking-wider mb-1">Đã hoàn thành</p>
+                <p id="stat-completed-events" class="text-2xl font-bold text-slate-800">0</p>
+            </div>
+            <div class="stat-card bg-white p-4 rounded-2xl border border-slate-200 shadow-sm border-l-4 border-l-indigo-500">
+                <p class="text-[10px] font-bold text-indigo-500 uppercase tracking-wider mb-1">Sắp tới</p>
+                <p id="stat-upcoming-events" class="text-2xl font-bold text-slate-800">0</p>
+            </div>
+            <div class="stat-card bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Tổng Doanh thu</p>
+                <p id="stat-total-revenue" class="text-lg font-bold text-slate-800">0đ</p>
+            </div>
+            <div class="stat-card bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <p class="text-[10px] font-bold text-blue-500 uppercase tracking-wider mb-1">Tiền đã nhận</p>
+                <p id="stat-total-received" class="text-lg font-bold text-blue-600">0đ</p>
+            </div>
+            <div class="stat-card bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <p class="text-[10px] font-bold text-orange-500 uppercase tracking-wider mb-1">Công nợ chưa thu</p>
+                <p id="stat-total-debt" class="text-lg font-bold text-orange-600">0đ</p>
+            </div>
+        </div>
 
         <!-- Tabs -->
         <div class="flex gap-6 border-b border-slate-200 mb-6 px-2">
@@ -208,11 +244,11 @@
                         <div class="grid grid-cols-2 gap-3">
                             <div>
                                 <label class="block text-xs font-bold text-slate-500 mb-1">Tổng chi phí (VNĐ)</label>
-                                <input type="number" id="total-price" value="0" class="w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 ring-emerald-50" oninput="calculateDebt()">
+                                <input type="number" id="total-price" value="0" class="w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 ring-emerald-50">
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-slate-500 mb-1">Đã cọc (VNĐ)</label>
-                                <input type="number" id="deposit" value="0" class="w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 ring-emerald-50" oninput="calculateDebt()">
+                                <input type="number" id="deposit" value="0" class="w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 ring-emerald-50">
                             </div>
                         </div>
                         
@@ -256,11 +292,11 @@
 
     <script>
         // Store
-        let events = JSON.parse(localStorage.getItem('pb_v5_2_events')) || [];
-        let customers = JSON.parse(localStorage.getItem('pb_v5_2_customers')) || [
+        let events = JSON.parse(localStorage.getItem('pb_v5_4_events')) || [];
+        let customers = JSON.parse(localStorage.getItem('pb_v5_4_customers')) || [
             {id: '1', name: 'Mẫu: Công ty Sự kiện ABC', tax: '0102030405', address: 'Quận 1, TP. HCM', email: 'contact@abc.vn'}
         ];
-        let settings = JSON.parse(localStorage.getItem('pb_v5_2_settings')) || {
+        let settings = JSON.parse(localStorage.getItem('pb_v5_4_settings')) || {
             packages: ["Gói 2h Cơ bản", "Gói 3h Chuyên nghiệp", "VIP Trọn gói"],
             backdrops: ["Trắng trơn", "Kim sa bạc", "Hộp quà Noel"],
             banks: ["Techcombank - 190...", "Vietcombank - 001...", "Tiền mặt"],
@@ -298,7 +334,7 @@
             const email = document.getElementById('cust-email').value.trim();
             if (!name) return;
             customers.push({ id: Date.now().toString(), name, tax, address, email });
-            localStorage.setItem('pb_v5_2_customers', JSON.stringify(customers));
+            localStorage.setItem('pb_v5_4_customers', JSON.stringify(customers));
             renderSettings();
             ['cust-name', 'cust-tax', 'cust-address', 'cust-email'].forEach(id => document.getElementById(id).value = '');
         }
@@ -306,7 +342,7 @@
         function removeCustomer(id) {
             if(!confirm("Xóa công ty này?")) return;
             customers = customers.filter(c => c.id !== id);
-            localStorage.setItem('pb_v5_2_customers', JSON.stringify(customers));
+            localStorage.setItem('pb_v5_4_customers', JSON.stringify(customers));
             renderSettings();
         }
 
@@ -314,20 +350,19 @@
             const val = document.getElementById(inputId).value.trim();
             if (!val) return;
             settings[key].push(val);
-            settings[key].sort(); // Sắp xếp A-Z cho dễ tìm
-            localStorage.setItem('pb_v5_2_settings', JSON.stringify(settings));
+            settings[key].sort();
+            localStorage.setItem('pb_v5_4_settings', JSON.stringify(settings));
             renderSettings();
             document.getElementById(inputId).value = '';
         }
 
         function removeSetting(key, idx) {
             settings[key].splice(idx, 1);
-            localStorage.setItem('pb_v5_2_settings', JSON.stringify(settings));
+            localStorage.setItem('pb_v5_4_settings', JSON.stringify(settings));
             renderSettings();
         }
 
         function renderSettings() {
-            // Customers
             document.getElementById('list-customers').innerHTML = customers.map(c => `
                 <tr class="border-b border-slate-50 hover:bg-slate-50 transition-all group">
                     <td class="py-3 font-bold text-slate-700">${c.name}</td>
@@ -339,7 +374,6 @@
                 </tr>
             `).join('');
 
-            // Categories
             const rList = (key, listId) => {
                 document.getElementById(listId).innerHTML = settings[key].map((item, idx) => `
                     <li class="flex justify-between items-center bg-slate-50 p-2 rounded mb-1 group">
@@ -369,6 +403,9 @@
                     const code = generateEventCode();
                     document.getElementById('event-code').value = code;
                     document.getElementById('auto-code-display').innerText = `MÃ CODE: ${code}`;
+                    document.getElementById('modal-title').innerText = "Thêm Sự Kiện Mới";
+                } else {
+                    document.getElementById('modal-title').innerText = "Chỉnh Sửa Sự Kiện";
                 }
                 modal.classList.remove('hidden');
             } else {
@@ -395,11 +432,6 @@
             document.getElementById('package').innerHTML = settings.packages.map(p => `<option value="${p}">${p}</option>`).join('');
             document.getElementById('backdrop').innerHTML = settings.backdrops.map(b => `<option value="${b}">${b}</option>`).join('');
             document.getElementById('bank').innerHTML = settings.banks.map(bk => `<option value="${bk}">${bk}</option>`).join('');
-        }
-
-        function calculateDebt() {
-            const total = parseFloat(document.getElementById('total-price').value) || 0;
-            const dep = parseFloat(document.getElementById('deposit').value) || 0;
         }
 
         document.getElementById('event-form').addEventListener('submit', function(e) {
@@ -470,6 +502,33 @@
             }
         }
 
+        // --- NEW: Google Calendar Export Logic ---
+        function addToGoogleCalendar(id) {
+            const ev = events.find(e => e.id === id);
+            if (!ev) return;
+
+            // Định dạng thời gian cho Google: YYYYMMDDTHHmmSSZ
+            const formatDate = (dateStr, timeStr) => {
+                return dateStr.replace(/-/g, '') + 'T' + timeStr.replace(/:/g, '') + '00';
+            };
+
+            const start = formatDate(ev.date, ev.startTime);
+            const end = formatDate(ev.date, ev.endTime);
+            
+            const title = encodeURIComponent(`[${ev.code}] ${ev.eventName} - ${ev.companyName}`);
+            const details = encodeURIComponent(
+                `Gói: ${ev.package}\n` +
+                `Backdrop: ${ev.backdrop}\n` +
+                `Ghi chú: ${ev.notes}\n` +
+                `Tài chính: Tổng ${ev.totalPrice.toLocaleString()}đ - Đã cọc ${ev.deposit.toLocaleString()}đ`
+            );
+            const location = encodeURIComponent(ev.location);
+
+            const url = `https://www.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${start}/${end}&details=${details}&location=${location}&sf=true&output=xml`;
+            
+            window.open(url, '_blank');
+        }
+
         function formatMoney(n) { return new Intl.NumberFormat('vi-VN').format(n) + 'đ'; }
         
         function formatDateVi(s) { 
@@ -490,10 +549,67 @@
             return map[s] || s;
         }
 
+        // Dashboard Summary Logic
+        function updateSummary() {
+            const today = new Date().toISOString().split('T')[0];
+            
+            const totalEvents = events.length;
+            const completedEvents = events.filter(e => e.status === 'completed').length;
+            const upcomingEvents = events.filter(e => e.date >= today && e.status !== 'cancelled').length;
+            
+            // Tính tiền (Chỉ tính các show không bị hủy)
+            const activeEvents = events.filter(e => e.status !== 'cancelled');
+            const totalRevenue = activeEvents.reduce((sum, e) => sum + e.totalPrice, 0);
+            const totalReceived = activeEvents.reduce((sum, e) => sum + e.deposit, 0);
+            const totalDebt = totalRevenue - totalReceived;
+
+            document.getElementById('stat-total-events').innerText = totalEvents;
+            document.getElementById('stat-completed-events').innerText = completedEvents;
+            document.getElementById('stat-upcoming-events').innerText = upcomingEvents;
+            document.getElementById('stat-total-revenue').innerText = formatMoney(totalRevenue);
+            document.getElementById('stat-total-received').innerText = formatMoney(totalReceived);
+            document.getElementById('stat-total-debt').innerText = formatMoney(totalDebt);
+        }
+
+        // Export Excel Logic
+        function exportToExcel() {
+            if (events.length === 0) {
+                alert("Không có dữ liệu để xuất!");
+                return;
+            }
+
+            const dataToExport = events.map(ev => ({
+                "Mã Code": ev.code,
+                "Ngày": formatDateVi(ev.date),
+                "Thời gian": `${ev.startTime} - ${ev.endTime}`,
+                "Tên Sự Kiện": ev.eventName,
+                "Khách Hàng/Công Ty": ev.companyName,
+                "Địa Điểm": ev.location,
+                "Gói Dịch Vụ": ev.package,
+                "Backdrop": ev.backdrop,
+                "Tổng Chi Phí": ev.totalPrice,
+                "Đã Cọc": ev.deposit,
+                "Còn Lại": ev.totalPrice - ev.deposit,
+                "VAT": ev.isVat ? "Có" : "Không",
+                "Ngân Hàng": ev.bank,
+                "Trạng Thái": getStatusText(ev.status),
+                "Ghi Chú": ev.notes
+            }));
+
+            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Events");
+            
+            // Generate filename with date
+            const dateStr = new Date().toISOString().split('T')[0];
+            XLSX.writeFile(workbook, `Photobooth_Events_${dateStr}.xlsx`);
+        }
+
         function saveAndRefresh() {
             events.sort((a,b) => new Date(a.date) - new Date(b.date));
-            localStorage.setItem('pb_v5_2_events', JSON.stringify(events));
+            localStorage.setItem('pb_v5_4_events', JSON.stringify(events));
             renderList();
+            updateSummary();
         }
 
         function renderList() {
@@ -538,6 +654,10 @@
                     </td>
                     <td class="p-4 text-right">
                         <div class="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <!-- Nút Thêm vào Google Calendar -->
+                            <button onclick="addToGoogleCalendar('${ev.id}')" title="Thêm vào Google Calendar" class="p-2 hover:bg-white text-emerald-600 rounded-lg shadow-sm border border-transparent hover:border-slate-200">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
                             <button onclick="editEvent('${ev.id}')" class="p-2 hover:bg-white text-indigo-600 rounded-lg shadow-sm border border-transparent hover:border-slate-200">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                             </button>
